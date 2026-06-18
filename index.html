@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <!-- App styles -->
+  <link rel="stylesheet" href="css/style.css?v=3">
+</head>
+<body>
+<div class="app">
+  <div class="hdr">
+    <div class="logo">N<span>ós</span></div>
+    <div class="hdr-r">
+      <div class="hdate"><strong id="hd-day">Quinta-feira</strong><span id="hd-date">29 mai</span></div>
+      <div id="sync-status" style="font-size:10px;color:var(--tx3);font-weight:600">☁️</div>
+      <div class="profile-chip" id="profile-chip" onclick="openSP()" title="Trocar perfil">
+        <div class="profile-chip-dot" id="profile-chip-dot"></div>
+        <div class="profile-chip-name" id="profile-chip-name">—</div>
+      </div>
+      <button class="icon-btn" onclick="openSP()">⚙️</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- HOJE -->
+    <div class="page active" id="page-hoje">
+      <div style="padding:0 20px">
+
+        <div class="hero" style="margin-top:4px">
+          <div id="greeting-time" style="font-size:11px;color:var(--tx2);margin-bottom:2px">Bom dia ☀️</div>
+          <div class="hero-day">Olá, <span id="hero-day">casal</span>! 🐾</div>
+          <div id="hero-date-sub" style="font-size:12px;color:var(--tx2);margin-bottom:12px"></div>
+          <div id="greeting-msg" style="font-size:13px;color:var(--tx);line-height:1.5;margin-bottom:16px;padding:10px 12px;background:rgba(232,200,122,.07);border-radius:10px;border-left:3px solid var(--ac)"></div>
+
+          <div style="font-size:10px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--tx2);margin-bottom:8px">Como vocês estão hoje?</div>
+          <div style="display:flex;gap:8px;margin-bottom:14px">
+            <div style="flex:1;background:rgba(122,196,232,.08);border:1px solid rgba(122,196,232,.2);border-radius:10px;padding:8px 10px">
+              <div style="font-size:10px;font-weight:700;color:var(--al);margin-bottom:6px">Allan</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="mbtn" onclick="mood('a',this)">😊</button>
+                <button class="mbtn" onclick="mood('a',this)">😴</button>
+                <button class="mbtn" onclick="mood('a',this)">😤</button>
+                <button class="mbtn" onclick="mood('a',this)">💪</button>
+              </div>
+            </div>
+            <div style="flex:1;background:rgba(232,122,176,.08);border:1px solid rgba(232,122,176,.2);border-radius:10px;padding:8px 10px">
+              <div style="font-size:10px;font-weight:700;color:var(--pe);margin-bottom:6px">Perla</div>
+              <div style="display:flex;gap:4px;flex-wrap:wrap">
+                <button class="mbtn" onclick="mood('p',this)">😊</button>
+                <button class="mbtn" onclick="mood('p',this)">😴</button>
+                <button class="mbtn" onclick="mood('p',this)">😤</button>
+                <button class="mbtn" onclick="mood('p',this)">💪</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="note-strip" onclick="openNoteModal()" style="margin-bottom:10px">
+            <span style="font-size:13px">💬</span>
+            <span class="note-tx" id="note-tx">Deixe um recado para o parceiro...</span>
+            <span class="note-ed">Editar</span>
+          </div>
+          <div style="text-align:center;padding:4px 0 2px">
+            <span style="font-size:12px;color:var(--ac);font-weight:600;letter-spacing:.3px">✦ Vamos iniciar o dia ✦</span>
+          </div>
+        </div>
+
+        <div class="card" style="margin-bottom:12px">
+          <div class="ctitle" id="turno-title">Turno da manhã — quem faz o quê</div>
+          <div class="turno-row">
+            <div class="turno a" onclick="openTurnoModal('a')">
+              <div class="tw">Allan</div>
+              <div class="tt" id="ta-tx">🐕 Cachorros</div>
+              <div class="te">toque para editar</div>
+            </div>
+            <div class="turno p" onclick="openTurnoModal('p')">
+              <div class="tw">Perla</div>
+              <div class="tt" id="tp-tx">☕ Café</div>
+              <div class="te">toque para editar</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">Rotina do dia</div>
+          <div id="today-tl"></div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">Tempo livre</div>
+          <div class="free-block">
+            <div class="free-title">Seus objetivos esta noite ✦</div>
+            <div class="free-row">
+              <div class="free-goal a"><div class="fg-who">Allan</div><div class="fg-tx">📚 Concurso PM-ES</div></div>
+              <div class="free-goal p"><div class="fg-who">Perla</div><div class="fg-tx">⚖️ OAB / Estudos</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">Cardápio de hoje</div>
+          <div class="menu-card">
+            <div class="mmeal">Café da manhã</div>
+            <div class="mname">Pão com ovos mexidos e queijo 🍳🧀</div>
+            <div class="mtags"><span class="mtag g">⚡ ~10 min</span><span class="mtag y">💪 Proteico</span></div>
+          </div>
+          <div class="menu-card">
+            <div class="mmeal">Janta / Almoço amanhã</div>
+            <div class="mname" id="dinner-name">Frango grelhado com batata doce 🍗🍠</div>
+            <div class="mtags" id="dinner-tags"><span class="mtag g">⚡ ~30 min</span><span class="mtag y">💪 Proteico</span></div>
+          </div>
+          <button class="sug-btn" onclick="nextMenu()">↻ Trocar sugestão</button>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">📅 Cardápio da semana</div>
+          <div id="week-plan-grid"></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- CALENDARIO -->
+    <div class="page" id="page-calendario">
+      <div style="padding:0 20px">
+        <div class="sec-hd"><h2>Calendário</h2></div>
+        <div class="week-sel" id="week-sel"></div>
+        <div id="cal-content"></div>
+      </div>
+    </div>
+
+    <!-- CARDAPIO -->
+    <div class="page" id="page-cardapio">
+      <div style="padding:0 20px">
+        <div class="sec-hd"><h2>Cardápio</h2><button onclick="openAddRec()" style="padding:6px 12px;border-radius:10px;background:rgba(232,200,122,.1);border:1px solid rgba(232,200,122,.3);color:var(--ac);font-size:12px;font-weight:700;cursor:pointer;font-family:'DM Sans',sans-serif">+ Nova Receita</button></div>
+        <div class="frow">
+          <button class="fbtn active" onclick="filt(this,'all')">Todos</button>
+          <button class="fbtn" onclick="filt(this,'fast')">⚡ Rápido</button>
+          <button class="fbtn" onclick="filt(this,'prot')">💪 Proteico</button>
+          <button class="fbtn" onclick="filt(this,'light')">🌿 Leve</button>
+        </div>
+        <div id="rec-grid"></div>
+      </div>
+    </div>
+
+    <!-- LISTA -->
+    <div class="page" id="page-lista">
+      <div style="padding:0 20px">
+        <div class="ls">
+          <div class="ctitle">🛒 Lista do Mercado</div>
+          <div class="add-row">
+            <input class="li-inp" id="mkt-inp" placeholder="Adicionar item..." onkeydown="if(event.key==='Enter')addMkt()">
+            <button class="add-btn" onclick="addMkt()">+</button>
+          </div>
+          <div id="mkt-list"></div>
+        </div>
+        <div class="ls">
+          <div class="ctitle">🎯 Objetivos</div>
+          <div id="goals-sec"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SAUDE -->
+    <div class="page" id="page-saude">
+      <div style="padding:0 20px">
+
+        <div class="hero" style="margin-top:4px;margin-bottom:12px">
+          <div id="s-greeting-time" style="font-size:11px;color:var(--tx2);margin-bottom:2px">Bom dia ☀️</div>
+          <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:10px">Como vocês estão, <span style="color:var(--ac)">Allan & Perla</span>?</div>
+          <div style="display:flex;gap:8px;margin-bottom:12px">
+            <div style="flex:1;background:rgba(122,196,232,.08);border:1px solid rgba(122,196,232,.2);border-radius:10px;padding:8px 10px">
+              <div style="font-size:10px;font-weight:700;color:var(--al);margin-bottom:6px">Allan</div>
+              <div style="display:flex;gap:4px">
+                <button class="mbtn" onclick="mood('a',this)">😊</button>
+                <button class="mbtn" onclick="mood('a',this)">😴</button>
+                <button class="mbtn" onclick="mood('a',this)">😤</button>
+                <button class="mbtn" onclick="mood('a',this)">💪</button>
+              </div>
+            </div>
+            <div style="flex:1;background:rgba(232,122,176,.08);border:1px solid rgba(232,122,176,.2);border-radius:10px;padding:8px 10px">
+              <div style="font-size:10px;font-weight:700;color:var(--pe);margin-bottom:6px">Perla</div>
+              <div style="display:flex;gap:4px">
+                <button class="mbtn" onclick="mood('p',this)">😊</button>
+                <button class="mbtn" onclick="mood('p',this)">😴</button>
+                <button class="mbtn" onclick="mood('p',this)">😤</button>
+                <button class="mbtn" onclick="mood('p',this)">💪</button>
+              </div>
+            </div>
+          </div>
+          <div class="note-strip" onclick="openNoteModal()" style="margin-bottom:0">
+            <span style="font-size:13px">💬</span>
+            <span class="note-tx" id="note-tx-s">Deixe um recado para o parceiro...</span>
+            <span class="note-ed">Editar</span>
+          </div>
+        </div>
+
+        <div class="sec-hd"><h2>Saúde 💧</h2></div>
+
+        <div class="card">
+          <div class="ctitle">Água hoje</div>
+          <div style="display:flex;gap:12px;margin-bottom:14px">
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:700;color:var(--al);margin-bottom:8px">Allan</div>
+              <div style="position:relative;height:150px;background:var(--sf2);border-radius:14px;border:1px solid var(--br);overflow:hidden">
+                <div id="agua-fill-a" style="position:absolute;bottom:0;left:0;right:0;height:0%;background:linear-gradient(180deg,rgba(122,196,232,.35),rgba(122,196,232,.7));transition:height .4s ease"></div>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                  <div id="agua-n-a" style="font-family:'Fraunces',serif;font-size:30px;font-weight:800;color:var(--al)">0</div>
+                  <div style="font-size:10px;color:var(--tx2)" id="agua-sub-a">de 15 copos</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button onclick="addAgua('a')" style="flex:1;padding:8px;border-radius:10px;background:rgba(122,196,232,.15);border:1px solid rgba(122,196,232,.3);color:var(--al);font-weight:700;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif">+ Copo</button>
+                <button onclick="rmAgua('a')" style="width:36px;border-radius:10px;background:var(--sf2);border:1px solid var(--br);color:var(--tx3);cursor:pointer;font-size:18px;font-family:'DM Sans',sans-serif">−</button>
+              </div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:11px;font-weight:700;color:var(--pe);margin-bottom:8px">Perla</div>
+              <div style="position:relative;height:150px;background:var(--sf2);border-radius:14px;border:1px solid var(--br);overflow:hidden">
+                <div id="agua-fill-p" style="position:absolute;bottom:0;left:0;right:0;height:0%;background:linear-gradient(180deg,rgba(232,122,176,.35),rgba(232,122,176,.7));transition:height .4s ease"></div>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+                  <div id="agua-n-p" style="font-family:'Fraunces',serif;font-size:30px;font-weight:800;color:var(--pe)">0</div>
+                  <div style="font-size:10px;color:var(--tx2)" id="agua-sub-p">de 12 copos</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button onclick="addAgua('p')" style="flex:1;padding:8px;border-radius:10px;background:rgba(232,122,176,.15);border:1px solid rgba(232,122,176,.3);color:var(--pe);font-weight:700;cursor:pointer;font-size:13px;font-family:'DM Sans',sans-serif">+ Copo</button>
+                <button onclick="rmAgua('p')" style="width:36px;border-radius:10px;background:var(--sf2);border:1px solid var(--br);color:var(--tx3);cursor:pointer;font-size:18px;font-family:'DM Sans',sans-serif">−</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:8px;font-size:11px;color:var(--tx2)">
+            <span>💧 1 copo = 200ml</span>
+            <span style="color:var(--br)">|</span>
+            <span style="color:var(--al)">Allan: 2.830ml</span>
+            <span style="color:var(--br)">|</span>
+            <span style="color:var(--pe)">Perla: 2.275ml</span>
+          </div>
+          <div id="agua-msg" style="text-align:center;font-size:12px;color:var(--tx2);min-height:18px"></div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">Histórico — últimos 7 dias</div>
+          <div style="display:flex;align-items:flex-end;gap:5px;height:110px;margin-bottom:6px" id="agua-chart"></div>
+          <div style="display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:11px;color:var(--tx2)">
+            <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:rgba(122,196,232,.75);display:inline-block"></span>Allan</span>
+            <span style="display:flex;align-items:center;gap:4px"><span style="width:9px;height:9px;border-radius:50%;background:rgba(232,122,176,.75);display:inline-block"></span>Perla</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">🏋️ Academia — marcar presença</div>
+          <div id="academia-grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px"></div>
+          <div style="font-size:11px;color:var(--tx2);margin-top:8px">Toque no dia para marcar como feito ✓</div>
+        </div>
+
+        <div class="card">
+          <div class="ctitle">🏃 Corridas da semana</div>
+          <div id="corrida-list"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tabs">
+    <button class="tab active" onclick="sw('hoje',this)"><span class="ti">🌤</span><span class="tl">Hoje</span></button>
+    <button class="tab" onclick="sw('calendario',this)"><span class="ti">📅</span><span class="tl">Calendário</span></button>
+    <button class="tab" onclick="sw('cardapio',this)"><span class="ti">🍽</span><span class="tl">Cardápio</span></button>
+    <button class="tab" onclick="sw('lista',this)"><span class="ti">📋</span><span class="tl">Lista</span></button>
+    <button class="tab" onclick="sw('saude',this)"><span class="ti">💧</span><span class="tl">Saúde</span></button>
+  </div>
+</div>
+
+<!-- PROFILE SELECTION SCREEN -->
+<div class="profile-screen" id="profile-screen">
+  <div class="profile-logo">N<span>ós</span></div>
+  <div class="profile-tagline">A rotina de vocês, juntos ❤️</div>
+  <div class="profile-title">Quem é você?</div>
+  <div class="profile-cards">
+    <div class="profile-card a" onclick="selectProfile('a')" tabindex="0">
+      <div class="profile-avatar">🙍‍♂️</div>
+      <div class="profile-card-name">Allan</div>
+      <div class="profile-card-sub">Entrar como Allan</div>
+    </div>
+    <div class="profile-card p" onclick="selectProfile('p')" tabindex="0">
+      <div class="profile-avatar">🙍‍♀️</div>
+      <div class="profile-card-name">Perla</div>
+      <div class="profile-card-sub">Entrar como Perla</div>
+    </div>
+  </div>
+  <div class="profile-note">Sua escolha fica salva neste dispositivo.<br>Você pode trocar a qualquer momento nas configurações.</div>
+</div>
+
+<div class="sp-bd" id="sp-bd" onclick="closeSP()"></div>
+<div class="sp" id="sp">
+  <button class="sp-cls" onclick="closeSP()">✕</button>
+  <div class="sp-title">⚙️ Configurações</div>
+  <div class="sp-sec">
+    <span class="sp-lbl">Tema</span>
+    <div class="theme-row">
+      <button class="t-btn on" id="btn-dark" onclick="setTheme('dark')">🌙 Escuro</button>
+      <button class="t-btn" id="btn-light" onclick="setTheme('light')">☀️ Claro</button>
+    </div>
+  </div>
+  <div class="sp-sec">
+    <span class="sp-lbl">Perfil ativo</span>
+    <div id="sp-profile-info" style="font-size:13px;color:var(--tx2);margin-bottom:10px">—</div>
+    <button onclick="switchProfile()" style="width:100%;padding:10px;border-radius:10px;background:var(--sf2);border:1px solid var(--br);color:var(--tx);font-size:13px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:600">🔄 Trocar perfil</button>
+  </div>
+  <div class="sp-sec">
+    <span class="sp-lbl">App</span>
+    <div style="font-size:13px;color:var(--tx2);padding:8px 0">Nós v2.0 · Allan &amp; Perla ❤️</div>
+  </div>
+</div>
+
+<div class="ctx" id="ctx">
+  <div class="ctx-i" id="ctx-edit">✏️ Editar</div>
+  <div class="ctx-i danger" id="ctx-del">🗑 Excluir</div>
+</div>
+
+<div class="mo" id="mo" onclick="closeMO(event)">
+  <div class="modal">
+    <div class="mhandle"></div>
+    <button class="mclose" onclick="closeModal()">✕</button>
+    <div class="mtitle" id="mt"></div>
+    <div id="mb"></div>
+  </div>
+</div>
+
+<!-- App scripts (order matters) -->
+<script src="js/globals.js?v=3"></script>
+<script src="js/ui.js?v=3"></script>
+<script src="js/profile.js?v=3"></script>
+<script src="js/firebase.js?v=3"></script>
+<script src="js/hoje.js?v=3"></script>
+<script src="js/calendario.js?v=3"></script>
+<script src="js/cardapio.js?v=3"></script>
+<script src="js/lista.js?v=3"></script>
+<script src="js/saude.js?v=3"></script>
+<script src="js/init.js?v=3"></script>
+</body>
+</html>
