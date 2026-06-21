@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
   <title>Nós</title>
-  <!-- Firebase SDK -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <style>
@@ -683,6 +682,7 @@ var DOC_ID = 'nos-casal-main';
 var COLLECTION = 'state';
 var syncTimeout = null;
 var isSyncing = false;
+var firebaseLoaded = false; // becomes true after first cloud snapshot is applied
 
 function initFirebase(){
   var firebaseConfig = {
@@ -697,17 +697,20 @@ function initFirebase(){
     firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
     db.collection(COLLECTION).doc(DOC_ID).onSnapshot(function(doc){
-      if(doc.exists && !isSyncing){
+      if(doc.exists){
         applyCloudState(doc.data());
       }
+      firebaseLoaded = true; // safe to save now (even if doc didn't exist yet)
     }, function(err){
       console.warn('Firebase listener error:', err);
       showSyncStatus('offline');
+      firebaseLoaded = true;
     });
     showSyncStatus('online');
   } catch(e){
     console.warn('Firebase init failed:', e);
     showSyncStatus('offline');
+    firebaseLoaded = true;
   }
 }
 
@@ -720,12 +723,11 @@ function getLocalState(){
     goals: goals,
     mktItems: mktItems,
     noteText: noteText,
-    // tlDone stored per profile: tlDone_a and tlDone_p
     tlDone_a: tlDone_a,
     tlDone_p: tlDone_p,
     tlExtra: tlExtra,
-    recipes: recipes,          // custom recipes synced
-    weekPlan: weekPlan,        // weekly meal plan synced
+    recipes: recipes,
+    weekPlan: weekPlan,
     savedDate: TODAY.toDateString(),
     updatedAt: Date.now()
   };
@@ -733,24 +735,28 @@ function getLocalState(){
 
 function saveState(){
   try{ localStorage.setItem('nos_mood', JSON.stringify(moodState)); }catch(e){}
-  // Save this profile's tlDone locally for instant restore on reload
   try{
     if(currentProfile==='a') localStorage.setItem('nos_tlDone_a', JSON.stringify(tlDone_a));
     if(currentProfile==='p') localStorage.setItem('nos_tlDone_p', JSON.stringify(tlDone_p));
   }catch(e){}
+  // Always keep an immediate local backup too (covers refresh before cloud roundtrip)
+  saveLocalFallback();
+
   if(syncTimeout) clearTimeout(syncTimeout);
   syncTimeout = setTimeout(function(){
-    if(!db){ saveLocalFallback(); return; }
+    // IMPORTANT: never write to Firestore before we've received the first
+    // snapshot — otherwise we'd overwrite real cloud data with empty state.
+    if(!db || !firebaseLoaded){ return; }
     isSyncing = true;
     var state = getLocalState();
-    db.collection(COLLECTION).doc(DOC_ID).set(state)
+    db.collection(COLLECTION).doc(DOC_ID).set(state, {merge:true})
       .then(function(){
         isSyncing = false;
         showSyncStatus('saved');
       })
       .catch(function(e){
         isSyncing = false;
-        saveLocalFallback();
+        console.warn('Save failed:', e);
         showSyncStatus('offline');
       });
   }, 800);
@@ -758,28 +764,37 @@ function saveState(){
 
 function applyCloudState(s){
   if(!s) return;
-  var isNewDay = (s.savedDate || '') !== TODAY.toDateString();
 
-  if(s.agua){ agua = s.agua; }
-  if(s.aguaHistory){
-    aguaHistory = s.aguaHistory;
-    if(isNewDay){
-      aguaHistory.push({a:0,p:0});
-      if(aguaHistory.length > 7) aguaHistory.shift();
-      agua = {a:0, p:0};
+  // ── ÁGUA: new format only (array of {date,a,p}); migrate old format if present ──
+  if(s.aguaHistory && s.aguaHistory.length){
+    var first = s.aguaHistory[0];
+    if(first && typeof first.date === 'string'){
+      // New format — use as is
+      aguaHistory = s.aguaHistory;
+    } else {
+      // Old format without dates — discard, will rebuild fresh from today
+      aguaHistory = [];
     }
-    aguaHistory[aguaHistory.length-1] = {a:agua.a, p:agua.p};
   }
-  if(s.academiaDone){ academiaDone = s.academiaDone; }
-  if(s.corridaDone){  corridaDone  = s.corridaDone;  }
-  if(s.goals)       { goals = s.goals; }
-  if(s.mktItems)    { mktItems = s.mktItems; }
-  if(s.tlExtra)     { tlExtra = s.tlExtra; }
-  if(s.recipes)     { recipes = s.recipes; }
-  if(s.weekPlan)    { weekPlan = s.weekPlan; }
+  var todayKey = getDateKey(TODAY);
+  var todayEntry = aguaHistory.filter(function(e){ return e.date === todayKey; })[0];
+  if(todayEntry){
+    agua = {a: todayEntry.a||0, p: todayEntry.p||0};
+  } else if(s.agua && (s.savedDate === TODAY.toDateString())){
+    // Fallback: legacy single 'agua' field saved today
+    agua = s.agua;
+  }
+  // (if neither matches, agua stays at whatever it currently is — likely {0,0} for a new day)
 
-  // Per-profile tlDone — only update the OTHER person's done state
-  // (we never overwrite our own local done state from cloud)
+  if(s.corridaDone)   { corridaDone   = s.corridaDone; }
+  if(s.academiaDone)  { academiaDone  = s.academiaDone; }
+  if(s.goals)          { goals = s.goals; }
+  if(s.mktItems)        { mktItems = s.mktItems; }
+  if(s.tlExtra)          { tlExtra = s.tlExtra; }
+  if(s.recipes)           { recipes = s.recipes; }
+  if(s.weekPlan)           { weekPlan = s.weekPlan; }
+
+  // Per-profile tlDone — only adopt the OTHER person's state from cloud
   if(s.tlDone_a && currentProfile !== 'a'){ tlDone_a = s.tlDone_a; }
   if(s.tlDone_p && currentProfile !== 'p'){ tlDone_p = s.tlDone_p; }
 
@@ -791,8 +806,8 @@ function applyCloudState(s){
     if(el2) el2.textContent = noteText || 'Deixe um recado para o parceiro...';
   }
 
-  renderTL(); renderMkt(); renderGoals(); updateAgua(); renderAcademia(); renderCorrida();
-  renderRec(); renderWeekPlan();
+  renderTL(); renderMkt(); renderGoals(); updateAgua();
+  renderAcademia(); renderCorrida(); renderRec(); renderWeekPlan();
 }
 
 function saveLocalFallback(){
@@ -1602,20 +1617,27 @@ function getDateKey(d){
 // Ensure today has an entry in aguaHistory; prune to 30 days
 function ensureTodayEntry(){
   var key = getDateKey(TODAY);
-  var last = aguaHistory[aguaHistory.length-1];
-  if(!last || last.date !== key){
-    aguaHistory.push({date:key, a:0, p:0});
-    if(aguaHistory.length > 30) aguaHistory.shift();
-    agua = {a:0, p:0};
+  var existing = aguaHistory.filter(function(e){ return e.date === key; })[0];
+  if(existing){
+    // Today's entry already exists (e.g. restored from cloud/local) — sync agua to it
+    agua = {a: existing.a||0, p: existing.p||0};
+    return;
   }
+  aguaHistory.push({date:key, a:agua.a||0, p:agua.p||0});
+  if(aguaHistory.length > 30) aguaHistory.shift();
 }
 
 function updateAgua(){
-  ensureTodayEntry();
-  // Sync today's values into history
-  var today = aguaHistory[aguaHistory.length-1];
-  today.a = agua.a;
-  today.p = agua.p;
+  // Sync today's values into history (find or create today's slot)
+  var todayKey = getDateKey(TODAY);
+  var todayEntry = aguaHistory.filter(function(e){ return e.date === todayKey; })[0];
+  if(!todayEntry){
+    todayEntry = {date:todayKey, a:0, p:0};
+    aguaHistory.push(todayEntry);
+    if(aguaHistory.length > 30) aguaHistory.shift();
+  }
+  todayEntry.a = agua.a;
+  todayEntry.p = agua.p;
 
   ['a','p'].forEach(function(who){
     var n    = agua[who];
@@ -1646,13 +1668,13 @@ function renderAguaChart(){
   var c = document.getElementById('agua-chart');
   if(!c) return;
 
-  // Show last 30 days (or however many we have)
-  var history = aguaHistory.slice(); // copy
-  // Ensure today is included
+  var history = aguaHistory.slice();
   var todayKey = getDateKey(TODAY);
   if(!history.length || history[history.length-1].date !== todayKey){
     history.push({date:todayKey, a:agua.a, p:agua.p});
   }
+  // Sort chronologically just in case
+  history.sort(function(a,b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
   var maxA = META.a, maxP = META.p;
   var html  = '';
@@ -1665,7 +1687,6 @@ function renderAguaChart(){
     var mlA = entry.a * 200;
     var mlP = entry.p * 200;
 
-    // Label: day number from date string
     var parts   = entry.date.split('-');
     var dayNum  = parseInt(parts[2], 10);
     var tipA    = 'Allan: '+mlA+'ml ('+entry.a+' copos)';
@@ -1673,16 +1694,13 @@ function renderAguaChart(){
 
     html += '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;height:100%;min-width:0">';
     html += '<div style="flex:1;width:100%;display:flex;align-items:flex-end;gap:1px;justify-content:center">';
-    // Allan bar
     html += '<div style="width:46%;background:'+(isToday?'rgba(122,196,232,.95)':'rgba(122,196,232,.5)')+
             ';border-radius:3px 3px 0 0;height:'+pa+'%;min-height:'+(entry.a>0?'3px':'0')+';"'+
             ' data-tip="'+tipA+'" onmouseenter="showTip(event,this)" onmouseleave="hideTip()" ontouchstart="showTip(event,this)"></div>';
-    // Perla bar
     html += '<div style="width:46%;background:'+(isToday?'rgba(232,122,176,.95)':'rgba(232,122,176,.5)')+
             ';border-radius:3px 3px 0 0;height:'+pp+'%;min-height:'+(entry.p>0?'3px':'0')+';"'+
             ' data-tip="'+tipP+'" onmouseenter="showTip(event,this)" onmouseleave="hideTip()" ontouchstart="showTip(event,this)"></div>';
     html += '</div>';
-    // Label: show day number; only show every 5th day + today to avoid crowding
     var showLabel = isToday || dayNum % 5 === 0 || dayNum === 1;
     html += '<div style="font-size:8px;color:'+(isToday?'var(--ac)':'var(--tx3)')+
             ';font-weight:'+(isToday?'700':'400')+'">'+(showLabel ? dayNum : '')+'</div>';
@@ -1709,41 +1727,40 @@ function showTip(e, el){
 function hideTip(){ var tip=document.getElementById('chart-tip'); if(tip) tip.style.display='none'; }
 
 // ── ACADEMIA ──────────────────────────────────────────────
+// Every day of the month is clickable — including weekends and holidays.
+// Only days strictly in the future are disabled.
 function renderAcademia(){
   var el = document.getElementById('academia-grid');
   if(!el) return;
 
-  // Show all days of the current month, day 1 to last day, in order
   var year  = TODAY.getFullYear();
   var month = TODAY.getMonth();
   var daysInMonth = new Date(year, month+1, 0).getDate();
+  var todayDateOnly = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
 
   var html = '';
   for(var day=1; day<=daysInMonth; day++){
-    var d       = new Date(year, month, day);
-    var dow     = d.getDay();
-    var key     = 'acad-'+d.toISOString().slice(0,10);
-    var done    = !!academiaDone[key];
-    var isToday = d.toDateString() === TODAY.toDateString();
-    var isFuture= d > TODAY;
-    var isSun   = dow === 0;
+    var d        = new Date(year, month, day);
+    var dow      = d.getDay();
+    var key      = 'acad-'+getDateKey(d);
+    var done     = !!academiaDone[key];
+    var isToday  = d.getTime() === todayDateOnly.getTime();
+    var isFuture = d.getTime() > todayDateOnly.getTime();
+    var isWeekend= dow === 0 || dow === 6;
 
-    var bg     = isSun    ? 'transparent'   :
-                 isFuture ? 'var(--sf3)'    :
-                 done     ? 'var(--gn)'     : 'var(--sf2)';
-    var col    = isFuture ? 'var(--tx3)'    :
-                 done     ? '#000'          : 'var(--tx2)';
-    var border = isToday  ? '2px solid var(--ac)' : isSun ? '1px dashed var(--br)' : '1px solid var(--br)';
-    var opacity= (isFuture || isSun) ? '.35' : '1';
+    var bg     = isFuture ? 'var(--sf3)' : done ? 'var(--gn)' : 'var(--sf2)';
+    var col    = isFuture ? 'var(--tx3)' : done ? '#000' : 'var(--tx2)';
+    var border = isToday  ? '2px solid var(--ac)' : isWeekend ? '1px dashed var(--br)' : '1px solid var(--br)';
+    var opacity= isFuture ? '.4' : '1';
 
     html += '<div'+
-      (isFuture||isSun ? '' : ' onclick="togAcad(this)" data-k="'+key+'"')+
+      (isFuture ? '' : ' onclick="togAcad(this)" data-k="'+key+'"')+
       ' style="width:36px;height:40px;border-radius:8px;background:'+bg+
       ';border:'+border+';display:flex;flex-direction:column;align-items:center;'+
-      'justify-content:center;gap:1px;cursor:'+(isFuture||isSun?'default':'pointer')+
+      'justify-content:center;gap:1px;cursor:'+(isFuture?'default':'pointer')+
       ';opacity:'+opacity+';transition:all .2s">';
     html += '<div style="font-size:10px;font-weight:600;color:'+col+'">'+day+'</div>';
-    html += '<div style="font-size:11px">'+(isSun?'':'')+(done?'✓':isFuture?'':'')+( !done&&!isFuture&&!isSun ? '·':'' )+'</div>';
+    html += '<div style="font-size:11px">'+(done?'✓':isFuture?'':'·')+'</div>';
     html += '</div>';
   }
 
@@ -1759,36 +1776,48 @@ function togAcad(el){
 }
 
 // ── CORRIDA ───────────────────────────────────────────────
-// corridaDone: stores 'feito' state per run date key
+// corridaDone: { 'run-YYYY-MM-DD': true/false }
+// corridaCustom: lets you add/edit run dates manually (not just Mon/Fri)
 var corridaDone = {};
+var corridaCustom = {}; // { 'YYYY-MM-DD': true } marks an extra custom run day
+var corridaRemoved = {}; // { 'YYYY-MM-DD': true } removes a default Mon/Fri day
 
 function renderCorrida(){
   var el = document.getElementById('corrida-list');
   if(!el) return;
 
   var DAYS_FULL = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-  // Get Mon and Fri of current week, plus next 2 weeks ahead
   var rows = [];
   var seen = {};
+  var todayOnly = new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
 
-  // Go back 2 weeks and forward 2 weeks to show context
+  var dateList = [];
   for(var offset=-14; offset<=14; offset++){
     var d = new Date(TODAY);
     d.setDate(TODAY.getDate() + offset);
     var dow = d.getDay();
-    if(dow !== 1 && dow !== 5) continue; // only Mon and Fri
-    var key = 'run-'+d.toISOString().slice(0,10);
-    if(seen[key]) continue;
-    seen[key] = true;
+    var dk = getDateKey(d);
+    var isDefaultRunDay = (dow === 1 || dow === 5) && !corridaRemoved[dk];
+    var isCustomRunDay  = !!corridaCustom[dk];
+    if(isDefaultRunDay || isCustomRunDay){
+      dateList.push(d);
+    }
+  }
+  dateList.sort(function(a,b){ return a-b; });
 
-    var isToday  = d.toDateString() === TODAY.toDateString();
-    var isFuture = d > TODAY;
-    var isPast   = d < new Date(TODAY.getFullYear(), TODAY.getMonth(), TODAY.getDate());
+  dateList.forEach(function(d){
+    var dk = getDateKey(d);
+    if(seen[dk]) return;
+    seen[dk] = true;
+    var key = 'run-'+dk;
+
+    var dOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var isToday  = dOnly.getTime() === todayOnly.getTime();
+    var isFuture = dOnly.getTime() > todayOnly.getTime();
     var isDone   = !!corridaDone[key];
-    var dateLabel = DAYS_FULL[dow]+' '+d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2);
+    var dateLabel = DAYS_FULL[d.getDay()]+' '+d.getDate()+'/'+('0'+(d.getMonth()+1)).slice(-2);
     if(isToday) dateLabel = 'Hoje';
 
-    // Button state
     var btnStyle, btnLabel;
     if(isFuture){
       btnStyle = 'background:rgba(122,196,232,.1);border:1px solid rgba(122,196,232,.25);color:var(--al)';
@@ -1812,10 +1841,12 @@ function renderCorrida(){
           ? '<span style="padding:5px 10px;border-radius:8px;font-size:11px;font-weight:700;'+btnStyle+'">'+btnLabel+'</span>'
           : '<button data-k="'+key+'" onclick="togCorrida(this)" style="padding:5px 10px;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;font-family:\'DM Sans\',sans-serif;'+btnStyle+'">'+btnLabel+'</button>'
         )+
+        '<button class="tmenu" style="color:var(--tx3);width:24px;height:24px" onclick="openCorridaCtx(event,\''+dk+'\')">⋯</button>'+
       '</div>'
     );
-  }
+  });
 
+  rows.push('<button class="add-dashed" style="margin-top:6px" onclick="openAddCorrida()">+ Adicionar data de corrida</button>');
   el.innerHTML = rows.join('');
 }
 
@@ -1823,6 +1854,82 @@ function togCorrida(btn){
   var key = btn.dataset.k;
   if(!key) return;
   corridaDone[key] = !corridaDone[key];
+  renderCorrida();
+  saveState();
+}
+
+function openCorridaCtx(e, dateKey){
+  e.stopPropagation();
+  var ctx = document.getElementById('ctx');
+  document.getElementById('ctx-edit').onclick = function(){
+    ctx.classList.remove('open');
+    openEditCorridaDate(dateKey);
+  };
+  document.getElementById('ctx-del').onclick = function(){
+    ctx.classList.remove('open');
+    removeCorridaDate(dateKey);
+  };
+  ctx.classList.add('open');
+  var r = e.target.getBoundingClientRect();
+  ctx.style.top  = (r.bottom+6)+'px';
+  ctx.style.left = Math.min(r.left-90, window.innerWidth-165)+'px';
+}
+
+function openEditCorridaDate(oldKey){
+  openModal('Editar data da corrida',
+    '<div class="fg"><label class="fl">Nova data</label>'+
+    '<input class="fi" id="corrida-new-date" type="date" value="'+oldKey+'"></div>'+
+    '<button class="save-btn" onclick="saveEditCorridaDate(\''+oldKey+'\')">Salvar</button>'
+  );
+}
+
+function saveEditCorridaDate(oldKey){
+  var newDateStr = document.getElementById('corrida-new-date').value;
+  if(!newDateStr) return;
+  // Remove old date (mark as removed if it was a default Mon/Fri, delete custom otherwise)
+  var oldD = new Date(oldKey+'T00:00:00');
+  var oldDow = oldD.getDay();
+  if(oldDow === 1 || oldDow === 5){
+    corridaRemoved[oldKey] = true;
+  }
+  delete corridaCustom[oldKey];
+  // Carry over done-state to new date
+  var wasDone = corridaDone['run-'+oldKey];
+  delete corridaDone['run-'+oldKey];
+  corridaDone['run-'+newDateStr] = wasDone;
+  // Add new date as custom
+  corridaCustom[newDateStr] = true;
+  closeModal();
+  renderCorrida();
+  saveState();
+}
+
+function removeCorridaDate(key){
+  var d = new Date(key+'T00:00:00');
+  var dow = d.getDay();
+  if(dow === 1 || dow === 5){
+    corridaRemoved[key] = true;
+  }
+  delete corridaCustom[key];
+  delete corridaDone['run-'+key];
+  renderCorrida();
+  saveState();
+}
+
+function openAddCorrida(){
+  var todayKey = getDateKey(TODAY);
+  openModal('+ Nova data de corrida',
+    '<div class="fg"><label class="fl">Data</label>'+
+    '<input class="fi" id="corrida-add-date" type="date" value="'+todayKey+'"></div>'+
+    '<button class="save-btn" onclick="saveAddCorrida()">Adicionar</button>'
+  );
+}
+
+function saveAddCorrida(){
+  var dateStr = document.getElementById('corrida-add-date').value;
+  if(!dateStr) return;
+  corridaCustom[dateStr] = true;
+  closeModal();
   renderCorrida();
   saveState();
 }
@@ -1836,14 +1943,21 @@ try{ var savedMood=localStorage.getItem('nos_mood'); if(savedMood) moodState=JSO
 try{ var s_a=localStorage.getItem('nos_tlDone_a'); if(s_a) tlDone_a=JSON.parse(s_a); }catch(e){}
 try{ var s_p=localStorage.getItem('nos_tlDone_p'); if(s_p) tlDone_p=JSON.parse(s_p); }catch(e){}
 
+// 1. Load local fallback FIRST (instant restore, no waiting for network)
 loadLocalFallback();
+
+// 2. Make sure today has a water entry — after fallback load, so we don't
+//    create a duplicate/empty entry that overwrites restored data.
+ensureTodayEntry();
+
+// 3. Connect to Firebase — will merge in cloud data when ready (real-time listener)
 initFirebase();
+
 checkSavedProfile();
 
 document.getElementById('hd-day').textContent  = DAYSF[TODAY.getDay()];
 document.getElementById('hd-date').textContent = TODAY.toLocaleDateString('pt-BR',{day:'numeric',month:'short'});
 
-ensureTodayEntry(); // make sure today has a slot in aguaHistory
 initGreeting();
 renderTL();
 buildWeek();
